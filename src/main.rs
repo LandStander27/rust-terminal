@@ -21,18 +21,21 @@ fn read_command(term: &Term, history: &Vec<String>) -> String {
 		match term.read_key() {
 			Ok(o) => {
 				if let console::Key::Char(c) = o {
+					if c.to_string() != "\t" {
+						inp.insert(cursor_pos as usize, c);
+						term.hide_cursor().unwrap();
+						if let Err(e) = term.write_str(&inp[cursor_pos as usize..]) {
+							print_error(line!(), e);
+						}
+						term.move_cursor_left(inp.len() - cursor_pos as usize).unwrap();
+						term.show_cursor().unwrap();
+						term.move_cursor_right(1).unwrap();
+						cursor_pos += 1;
+					}
 					// if let Err(e) = term.write_str(c.to_string().as_str()) {
 					// 	print_error(line!(), e);
 					// }
-					inp.insert(cursor_pos as usize, c);
-					term.hide_cursor().unwrap();
-					if let Err(e) = term.write_str(&inp[cursor_pos as usize..]) {
-						print_error(line!(), e);
-					}
-					term.move_cursor_left(inp.len() - cursor_pos as usize).unwrap();
-					term.show_cursor().unwrap();
-					term.move_cursor_right(1).unwrap();
-					cursor_pos += 1;
+
 				} else if o == console::Key::Backspace && cursor_pos >= 1 {
 					term.hide_cursor().unwrap();
 					term.move_cursor_left(1).unwrap();
@@ -133,7 +136,7 @@ fn prefix(term: &Term) {
 		},
 		Err(e) => {
 			print_error(line!(), e);
-			"unavailable".to_string()
+			"???".to_string()
 		}
 	};
 	if let Err(e) = term.write_str(console::style(current).blue().bright().to_string().as_str()) {
@@ -144,14 +147,30 @@ fn prefix(term: &Term) {
 	}
 }
 
+fn is_debug() -> bool {
+	return std::env::args().collect::<Vec<String>>().contains(&"--debug".to_string());
+}
+
+fn debug<S: std::fmt::Display>(s: S) {
+	if is_debug() {
+		println!("{}", s);
+	}
+}
+
 fn main() {
+	debug("init terminal");
 	let term = Term::stdout();
-	if let Err(e) = term.clear_screen() {
-		print_error(line!(), e);
+	if !is_debug() {
+		if let Err(e) = term.clear_screen() {
+			print_error(line!(), e);
+		}
 	}
 	
+	debug("init commands");
 	let cmds = commands::create_commands();
+	debug("init ctrl-c handler thread channel");
 	let (sc2, rc2): (Sender<i16>, Receiver<i16>) = mpsc::channel();
+	debug("init ctrl-c handler thread");
 	if let Err(e) = ctrlc::set_handler(move || {
 		if let Err(e2) = sc2.send(1) {
 			print_error(line!(), e2);
@@ -160,23 +179,25 @@ fn main() {
 		print_error(line!(), e);
 	}
 
+	debug("init history vector");
 	let mut history: Vec<String> = Vec::with_capacity(100);
-
 	loop {
 		prefix(&term);
-		let inp = read_command(&term, &history);
-		if history.len() > 0 {
-			if history.last().unwrap() != &inp {
+		let inp = read_command(&term, &history).trim().to_string();
+		if inp.chars().any(|x| x.to_string() != " ") {
+			if history.len() > 0 {
+				if history.last().unwrap() != &inp {
+					if history.len() == history.capacity() {
+						history.remove(0);
+					}
+					history.push(inp.clone());
+				}
+			} else {
 				if history.len() == history.capacity() {
 					history.remove(0);
 				}
 				history.push(inp.clone());
 			}
-		} else {
-			if history.len() == history.capacity() {
-				history.remove(0);
-			}
-			history.push(inp.clone());
 		}
 		match shellwords::split(inp.as_str()) {
 			Ok(parsed) => {
