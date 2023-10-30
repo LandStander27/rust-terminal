@@ -1,8 +1,10 @@
+#![allow(non_upper_case_globals)]
+
 use std::{path::Path, sync::{mpsc::Receiver, Mutex}, collections::HashMap, process::exit};
 use lazy_static::lazy_static;
 
 lazy_static! {
-	static ref data: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+	pub static ref data: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
 }
 
 #[derive(Clone)]
@@ -78,7 +80,7 @@ fn change_directory(args: Vec<String>, _: String, _: Option<Receiver<i16>>) -> R
 	return Ok(());
 }
 
-fn set_variable(args: Vec<String>, _: String, _: Option<Receiver<i16>>) -> Result<(), String> {
+fn set_variable(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Result<(), String> {
 
 	if args.len() != 3 {
 		println!("Syntax: set {{var_name}} {{var_data}}");
@@ -87,7 +89,19 @@ fn set_variable(args: Vec<String>, _: String, _: Option<Receiver<i16>>) -> Resul
 	if args[1].chars().any(|x| x.to_string() == " ") || args[1] == "" {
 		return Err("Name cannot have whitespace".to_string());
 	}
-	let mut d = data.lock().unwrap();
+	let mut d;
+	let channel = rv.unwrap();
+	loop {
+		if let Ok(o) = channel.try_recv() {
+			if o == 1 {
+				return Err("Could not aquire variable mutex".to_string());
+			}
+		}
+		if let Ok(o) = data.try_lock() {
+			d = o;
+			break;
+		}
+	}
 	if d.contains_key(&args[1].clone().trim().to_string()) {
 		d.remove(&args[1].clone().trim().to_string());
 	}
@@ -98,14 +112,28 @@ fn set_variable(args: Vec<String>, _: String, _: Option<Receiver<i16>>) -> Resul
 
 fn list_variables(_: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Result<(), String> {
 
-	let d = data.lock().unwrap();
 	
 	if rv.is_none() {
+		let d = data.lock().unwrap();
 		for (key, val) in d.iter() {
 			println!("{} = \"{}\"", key, val);
 		}
 	} else {
+		let d;
 		let channel = rv.unwrap();
+
+		loop {
+			if let Ok(o) = channel.try_recv() {
+				if o == 1 {
+					return Err("Could not aquire variable mutex".to_string());
+				}
+			}
+			if let Ok(o) = data.try_lock() {
+				d = o;
+				break;
+			}
+		}
+
 		for (key, val) in d.iter() {
 			if let Ok(o) = channel.try_recv() {
 				if o == 1 {

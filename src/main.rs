@@ -183,7 +183,7 @@ fn main() {
 	let mut history: Vec<String> = Vec::with_capacity(100);
 	loop {
 		prefix(&term);
-		let inp = read_command(&term, &history).trim().to_string();
+		let mut inp = read_command(&term, &history).trim().to_string();
 		if inp.chars().any(|x| x.to_string() != " ") {
 			if history.len() > 0 {
 				if history.last().unwrap() != &inp {
@@ -199,6 +199,11 @@ fn main() {
 				history.push(inp.clone());
 			}
 		}
+		let d = commands::data.lock().unwrap();
+		for var in d.keys() {
+			inp = inp.replace(&format!("${}$", var), &d[var]);
+		}
+		drop(d);
 		match shellwords::split(inp.as_str()) {
 			Ok(parsed) => {
 				if parsed.len() == 0 {
