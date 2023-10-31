@@ -46,6 +46,12 @@ pub fn create_commands() -> Vec<Command<'static>> {
 		help: "Lists the currently defined variables".to_string(),
 	});
 	crate::debug(format!("init {}", cmds.last().unwrap().name));
+	cmds.push(Command {
+		func: &(list_directory as fn(Vec<String>, String, Option<Receiver<i16>>) -> Result<(), String>),
+		name: "ls".to_string(),
+		help: "Lists the current directory".to_string(),
+	});
+	crate::debug(format!("init {}", cmds.last().unwrap().name));
 	return cmds;
 }
 
@@ -111,7 +117,6 @@ fn set_variable(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Resu
 }
 
 fn list_variables(_: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Result<(), String> {
-
 	
 	if rv.is_none() {
 		let d = data.lock().unwrap();
@@ -141,6 +146,68 @@ fn list_variables(_: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Resul
 				}
 			}
 			println!("{} = \"{}\"", key, val);
+		}
+	}
+
+	return Ok(());
+}
+
+fn list_directory(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Result<(), String> {
+
+	if args.len() > 2 {
+		println!("Syntax: ls {{directory}}");
+		return Ok(());
+	}
+	let files = if args.len() == 2 {
+		if !(Path::new(&args[1]).is_dir()) {
+			println!("Directory does not exist");
+			return Ok(());
+		}
+		match std::fs::read_dir(&args[1]) {
+			Ok(o) => {
+				o
+			},
+			Err(e) => {
+				return Err(e.to_string());
+			}
+		}
+	} else {
+		match std::fs::read_dir(".") {
+			Ok(o) => {
+				o
+			},
+			Err(e) => {
+				return Err(e.to_string());
+			}
+		}
+	};
+	// let files = files.map(|x| x.unwrap().file_name().to_str().unwrap().to_string()).collect::<Vec<String>>();
+	let files = files.map(|x| x.unwrap()).collect::<Vec<std::fs::DirEntry>>();
+	let mut longest_file_size = 5;
+
+	files.iter().for_each(|x| if x.metadata().unwrap().len().to_string().len() > longest_file_size {
+		longest_file_size = x.metadata().unwrap().len().to_string().len();
+	});
+
+	let channel = rv.unwrap();
+	for f in files {
+		if let Ok(o) = channel.try_recv() {
+			if o == 1 {
+				return Ok(());
+			}
+		}
+		let t: chrono::DateTime<chrono::Local> = f.metadata().unwrap().modified().unwrap().into();
+		if f.metadata().unwrap().is_file() {
+			let size = f.metadata().unwrap().len().to_string();
+			if vec!["exe", "bat", "com"].iter().any(|x| x == &f.path().extension().unwrap_or(f.path().file_name().unwrap_or(std::ffi::OsStr::new("")))) {
+				print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, console::style(f.file_name().to_str().unwrap()).green().bright());
+			} else {
+				print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, f.file_name().to_str().unwrap());
+			}
+			
+			
+		} else {
+			print!("{} {}<DIR> {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-5), console::style(f.file_name().to_str().unwrap()).blue().bright());
 		}
 	}
 

@@ -139,6 +139,7 @@ fn prefix(term: &Term) {
 			"???".to_string()
 		}
 	};
+	let current = current.replace("\\", "/");
 	if let Err(e) = term.write_str(console::style(current).blue().bright().to_string().as_str()) {
 		print_error(line!(), e);
 	}
@@ -215,6 +216,8 @@ fn main() {
 					if cmd.name == parsed.clone()[0] {
 						found = true;
 						let (sc, rc): (Sender<i16>, Receiver<i16>) = mpsc::channel();
+						debug("starting command thread");
+						let start_time = std::time::Instant::now();
 						let current_command = thread::spawn(move || -> Result<(), String> {
 							return (cmd.func)(parsed, inp[inp.len().min(cmd.name.len()+1)..].to_string(), Some(rc));
 						});
@@ -230,6 +233,7 @@ fn main() {
 						if let Err(e) = current_command.join().unwrap() {
 							print_error(line!(), e);
 						};
+						debug(format!("command took {} seconds to complete", start_time.elapsed().as_secs_f32()));
 						break;
 						// if let Err(e) = (cmd.func)(parsed.clone(), inp.clone()[inp.len().min(cmd.name.len()+1)..].to_string()) {
 						// 	print_error(line!(), e);
@@ -245,6 +249,5 @@ fn main() {
 			}
 		}
 	}
-
 	
 }
