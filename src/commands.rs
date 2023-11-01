@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 
 lazy_static! {
 	pub static ref data: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+	pub static ref path: Mutex<Vec<String>> = Mutex::new(Vec::new());
 }
 
 #[derive(Clone)]
@@ -16,6 +17,12 @@ pub struct Command<'a> {
 
 pub fn create_commands() -> Vec<Command<'static>> {
 	let mut cmds: Vec<Command<'static>> = Vec::new();
+	cmds.push(Command {
+		func: &(help_command as fn(Vec<String>, String, Option<Receiver<i16>>) -> Result<(), String>),
+		name: "help".to_string(),
+		help: "Shows this help menu".to_string(),
+	});
+	crate::debug(format!("init {}", cmds.last().unwrap().name));
 	cmds.push(Command {
 		func: &(echo as fn(Vec<String>, String, Option<Receiver<i16>>) -> Result<(), String>),
 		name: "echo".to_string(),
@@ -53,6 +60,24 @@ pub fn create_commands() -> Vec<Command<'static>> {
 	});
 	crate::debug(format!("init {}", cmds.last().unwrap().name));
 	return cmds;
+}
+
+fn help_command(_: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Result<(), String> {
+	let mut commands = create_commands();
+	commands.sort_by_key(|x| x.name.clone());
+
+	let mut longest_command: usize = 0;
+	for cmd in commands.iter() {
+		if cmd.name.len() > longest_command {
+			longest_command = cmd.name.len();
+		}
+	}
+
+	for cmd in commands {
+		println!("{}{}{}", cmd.name, " ".repeat(longest_command-cmd.name.len()+2), cmd.help);
+	}
+
+	return Ok(());
 }
 
 fn echo(args: Vec<String>, args_string: String, _: Option<Receiver<i16>>) -> Result<(), String> {
@@ -96,18 +121,23 @@ fn set_variable(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Resu
 		return Err("Name cannot have whitespace".to_string());
 	}
 	let mut d;
-	let channel = rv.unwrap();
-	loop {
-		if let Ok(o) = channel.try_recv() {
-			if o == 1 {
-				return Err("Could not aquire variable mutex".to_string());
+	if rv.is_some() {
+		let channel = rv.unwrap();
+		loop {
+			if let Ok(o) = channel.try_recv() {
+				if o == 1 {
+					return Err("Could not aquire variable mutex".to_string());
+				}
+			}
+			if let Ok(o) = data.try_lock() {
+				d = o;
+				break;
 			}
 		}
-		if let Ok(o) = data.try_lock() {
-			d = o;
-			break;
-		}
+	} else {
+		d = data.lock().unwrap();
 	}
+
 	if d.contains_key(&args[1].clone().trim().to_string()) {
 		d.remove(&args[1].clone().trim().to_string());
 	}
@@ -189,27 +219,46 @@ fn list_directory(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Re
 		longest_file_size = x.metadata().unwrap().len().to_string().len();
 	});
 
-	let channel = rv.unwrap();
-	for f in files {
-		if let Ok(o) = channel.try_recv() {
-			if o == 1 {
-				return Ok(());
+	if rv.is_some() {
+		let channel = rv.unwrap();
+		for f in files {
+			if let Ok(o) = channel.try_recv() {
+				if o == 1 {
+					return Ok(());
+				}
+			}
+			let t: chrono::DateTime<chrono::Local> = f.metadata().unwrap().modified().unwrap().into();
+			if f.metadata().unwrap().is_file() {
+				let size = f.metadata().unwrap().len().to_string();
+				if vec!["exe", "bat", "com"].iter().any(|x| x == &f.path().extension().unwrap_or(f.path().file_name().unwrap_or(std::ffi::OsStr::new("")))) {
+					print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, console::style(f.file_name().to_str().unwrap()).green().bright());
+				} else {
+					print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, f.file_name().to_str().unwrap());
+				}
+				
+				
+			} else {
+				print!("{} {}<DIR> {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-5), console::style(f.file_name().to_str().unwrap()).blue().bright());
 			}
 		}
-		let t: chrono::DateTime<chrono::Local> = f.metadata().unwrap().modified().unwrap().into();
-		if f.metadata().unwrap().is_file() {
-			let size = f.metadata().unwrap().len().to_string();
-			if vec!["exe", "bat", "com"].iter().any(|x| x == &f.path().extension().unwrap_or(f.path().file_name().unwrap_or(std::ffi::OsStr::new("")))) {
-				print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, console::style(f.file_name().to_str().unwrap()).green().bright());
+	} else {
+		for f in files {
+			let t: chrono::DateTime<chrono::Local> = f.metadata().unwrap().modified().unwrap().into();
+			if f.metadata().unwrap().is_file() {
+				let size = f.metadata().unwrap().len().to_string();
+				if vec!["exe", "bat", "com"].iter().any(|x| x == &f.path().extension().unwrap_or(f.path().file_name().unwrap_or(std::ffi::OsStr::new("")))) {
+					print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, console::style(f.file_name().to_str().unwrap()).green().bright());
+				} else {
+					print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, f.file_name().to_str().unwrap());
+				}
+				
+				
 			} else {
-				print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, f.file_name().to_str().unwrap());
+				print!("{} {}<DIR> {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-5), console::style(f.file_name().to_str().unwrap()).blue().bright());
 			}
-			
-			
-		} else {
-			print!("{} {}<DIR> {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-5), console::style(f.file_name().to_str().unwrap()).blue().bright());
 		}
 	}
+
 
 	return Ok(());
 }

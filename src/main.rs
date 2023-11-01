@@ -158,6 +158,31 @@ fn debug<S: std::fmt::Display>(s: S) {
 	}
 }
 
+fn update_path() {
+	let start_time = std::time::Instant::now();
+	let p: Vec<String> = match std::env::var("path") {
+		Ok(o) => {
+			o.split(";").map(|x| x.to_string()).collect::<Vec<String>>()
+		},
+		Err(e) => {
+			print_error(line!(), format!("Unable to update path var: {}", e));
+			return;
+		}
+	};
+
+	let mut p_var = commands::path.lock().unwrap();
+	p_var.clear();
+	p_var.clone_from(&p);
+	debug(format!("Path updated in {}s", start_time.elapsed().as_secs_f32()));
+}
+
+fn is_valid_exe() -> Option<String> {
+
+	
+
+	return None;
+}
+
 fn main() {
 	debug("init terminal");
 	let term = Term::stdout();
@@ -179,6 +204,8 @@ fn main() {
 	}) {
 		print_error(line!(), e);
 	}
+
+	update_path();
 
 	debug("init history vector");
 	let mut history: Vec<String> = Vec::with_capacity(100);
