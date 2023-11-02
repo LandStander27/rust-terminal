@@ -2,6 +2,9 @@ use console::Term;
 use std::thread;
 use std::sync::mpsc::{self, Sender, Receiver};
 
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::MetadataExt;
+
 mod commands;
 
 fn print_error<S: std::fmt::Display>(line_num: u32, e: S) {
