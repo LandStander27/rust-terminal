@@ -182,6 +182,7 @@ fn is_executable<S: Into<String>>(s: S) -> bool {
 	use std::os::linux::fs::MetadataExt;
 	let d = std::fs::metadata(s);
 	println!("{:?}", d);
+	return false;
 
 	// return vec!["exe", "bat", "com"].contains(&s.as_str());
 }
