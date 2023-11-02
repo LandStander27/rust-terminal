@@ -191,7 +191,7 @@ fn is_executable<S: Into<String>>(s: S) -> bool {
 #[cfg(target_os = "windows")]
 fn is_executable<S: Into<String>>(s: S) -> bool {
 	let s: String = s.into();
-	return vec!["exe", "bat", "com"].contains(&s.as_str());
+	return vec!["exe", "bat", "com"].iter().any(|x| x.ends_with(&s.as_str()));
 }
 
 fn is_valid_exe<S: Into<String>>(file: S) -> Option<String> {
@@ -212,20 +212,16 @@ fn is_valid_exe<S: Into<String>>(file: S) -> Option<String> {
 	for i in p.iter() {
 		let path = std::path::Path::new(i);
 		if path.join(file).is_file() {
-			if let Some(o) = path.extension() {
-				if path.is_file() && is_executable(o.to_str().unwrap()) && (path.file_stem().unwrap() == file || path.file_name().unwrap() == file) {
-					return Some(path.canonicalize().unwrap().to_str().unwrap().to_string());
-				}
+			if path.is_file() && is_executable(path.to_str().unwrap()) && (path.file_stem().unwrap() == file || path.file_name().unwrap() == file) {
+				return Some(path.canonicalize().unwrap().to_str().unwrap().to_string());
 			}
 		}
 	}
 
 	let path = std::path::Path::new(".");
 	if path.join(file).is_file() {
-		if let Some(o) = path.extension() {
-			if path.is_file() && is_executable(o.to_str().unwrap()) && (path.file_stem().unwrap() == file || path.file_name().unwrap() == file) {
-				return Some(path.canonicalize().unwrap().to_str().unwrap().to_string());
-			}
+		if path.is_file() && is_executable(path.to_str().unwrap()) && (path.file_stem().unwrap() == file || path.file_name().unwrap() == file) {
+			return Some(path.canonicalize().unwrap().to_str().unwrap().to_string());
 		}
 	}
 
