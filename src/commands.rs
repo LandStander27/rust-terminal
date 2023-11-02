@@ -73,9 +73,22 @@ fn help_command(_: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Result<
 		}
 	}
 
-	for cmd in commands {
-		println!("{}{}{}", cmd.name, " ".repeat(longest_command-cmd.name.len()+2), cmd.help);
+	if rv.is_some() {
+		let channel = rv.unwrap();
+		for cmd in commands {
+			if let Ok(o) = channel.try_recv() {
+				if o == 1 {
+					break;
+				}
+			}
+			println!("{}{}{}", cmd.name, " ".repeat(longest_command-cmd.name.len()+2), cmd.help);
+		}
+	} else {
+		for cmd in commands {
+			println!("{}{}{}", cmd.name, " ".repeat(longest_command-cmd.name.len()+2), cmd.help);
+		}
 	}
+
 
 	return Ok(());
 }
