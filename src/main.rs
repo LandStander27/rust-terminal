@@ -180,7 +180,7 @@ fn is_executable<S: Into<String>>(s: S) -> bool {
 	let s: String = s.into();
 
 	use std::os::linux::fs::MetadataExt;
-	let d = std::fs::metadata(s).unwrap();
+	let d = std::fs::metadata(s).unwrap().mode();
 	if d & 0o111 != 0 {
 		return true;
 	}
