@@ -17,7 +17,6 @@ fn read_command(term: &Term, history: &Vec<String>) -> String {
 	let mut cursor_pos: i32 = 0;
 	let mut history_position: Option<i32> = None;
 	loop {
-		thread::sleep(std::time::Duration::from_millis(1));
 		match term.read_key() {
 			Ok(o) => {
 				if let console::Key::Char(c) = o {
@@ -176,9 +175,57 @@ fn update_path() {
 	debug(format!("Path updated in {}s", start_time.elapsed().as_secs_f32()));
 }
 
-fn is_valid_exe() -> Option<String> {
+#[cfg(target_os = "linux")]
+fn is_executable<S: Into<String>>(s: S) -> bool {
+	let s: String = s.into();
 
-	
+	use std::os::linux::fs::MetadataExt;
+	let d = std::fs::metadata(s);
+	println!("{:?}", d);
+
+	// return vec!["exe", "bat", "com"].contains(&s.as_str());
+}
+
+#[cfg(target_os = "windows")]
+fn is_executable<S: Into<String>>(s: S) -> bool {
+	let s: String = s.into();
+	return vec!["exe", "bat", "com"].contains(&s.as_str());
+}
+
+fn is_valid_exe<S: Into<String>>(file: S) -> Option<String> {
+
+	let p = match commands::path.lock() {
+		Ok(o) => {
+			o
+		},
+		Err(e) => {
+			print_error(line!(), format!("Could not grab path var: {}", e));
+			return None;
+		}
+	};
+
+	let file: String = file.into();
+	let file = std::ffi::OsStr::new(&file);
+
+	for i in p.iter() {
+		let path = std::path::Path::new(i);
+		if path.join(file).is_file() {
+			if let Some(o) = path.extension() {
+				if path.is_file() && is_executable(o.to_str().unwrap()) && (path.file_stem().unwrap() == file || path.file_name().unwrap() == file) {
+					return Some(path.canonicalize().unwrap().to_str().unwrap().to_string());
+				}
+			}
+		}
+	}
+
+	let path = std::path::Path::new(".");
+	if path.join(file).is_file() {
+		if let Some(o) = path.extension() {
+			if path.is_file() && is_executable(o.to_str().unwrap()) && (path.file_stem().unwrap() == file || path.file_name().unwrap() == file) {
+				return Some(path.canonicalize().unwrap().to_str().unwrap().to_string());
+			}
+		}
+	}
 
 	return None;
 }
@@ -239,6 +286,9 @@ fn main() {
 				}
 				let mut found = false;
 				let command_clone = parsed[0].clone();
+				if let Some(s) = is_valid_exe(parsed.clone()[0].clone()) {
+					println!("{}", s);
+				}
 				for cmd in cmds.clone() {
 					if cmd.name == parsed.clone()[0] {
 						found = true;

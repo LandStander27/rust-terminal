@@ -230,7 +230,7 @@ fn list_directory(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Re
 			let t: chrono::DateTime<chrono::Local> = f.metadata().unwrap().modified().unwrap().into();
 			if f.metadata().unwrap().is_file() {
 				let size = f.metadata().unwrap().len().to_string();
-				if vec!["exe", "bat", "com"].iter().any(|x| x == &f.path().extension().unwrap_or(f.path().file_name().unwrap_or(std::ffi::OsStr::new("")))) {
+				if crate::is_executable(f.path().extension().unwrap_or(f.path().file_name().unwrap_or(std::ffi::OsStr::new(""))).to_str().unwrap()) {
 					print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, console::style(f.file_name().to_str().unwrap()).green().bright());
 				} else {
 					print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, f.file_name().to_str().unwrap());
@@ -246,7 +246,7 @@ fn list_directory(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Re
 			let t: chrono::DateTime<chrono::Local> = f.metadata().unwrap().modified().unwrap().into();
 			if f.metadata().unwrap().is_file() {
 				let size = f.metadata().unwrap().len().to_string();
-				if vec!["exe", "bat", "com"].iter().any(|x| x == &f.path().extension().unwrap_or(f.path().file_name().unwrap_or(std::ffi::OsStr::new("")))) {
+				if crate::is_executable(f.path().extension().unwrap_or(f.path().file_name().unwrap_or(std::ffi::OsStr::new(""))).to_str().unwrap()) {
 					print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, console::style(f.file_name().to_str().unwrap()).green().bright());
 				} else {
 					print!("{} {}{} {}\n", t.format("%b %d %H:%M"), " ".repeat(longest_file_size-size.len()), size, f.file_name().to_str().unwrap());
