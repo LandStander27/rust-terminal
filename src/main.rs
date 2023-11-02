@@ -179,10 +179,11 @@ fn update_path() {
 fn is_executable<S: Into<String>>(s: S) -> bool {
 	let s: String = s.into();
 
-	println!("thingy: {}", s);
 	use std::os::linux::fs::MetadataExt;
-	let d = std::fs::metadata(s);
-	println!("{:?}", d);
+	let d = std::fs::metadata(s).unwrap();
+	if d & 0o111 != 0 {
+		return true;
+	}
 	return false;
 
 	// return vec!["exe", "bat", "com"].contains(&s.as_str());
