@@ -1,6 +1,7 @@
 use console::Term;
 use std::thread;
 use std::sync::mpsc::{self, Sender, Receiver};
+use std::process::Command as Cmd;
 
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::MetadataExt;
@@ -162,9 +163,13 @@ fn debug<S: std::fmt::Display>(s: S) {
 
 fn update_path() {
 	let start_time = std::time::Instant::now();
-	let p: Vec<String> = match std::env::var("path") {
+	let p: Vec<String> = match std::env::var("PATH") {
 		Ok(o) => {
-			o.split(";").map(|x| x.to_string()).collect::<Vec<String>>()
+			if cfg!(windows) {
+				o.split(";").map(|x| x.to_string()).collect::<Vec<String>>()
+			} else {
+				o.split(":").map(|x| x.to_string()).collect::<Vec<String>>()
+			}
 		},
 		Err(e) => {
 			print_error(line!(), format!("Unable to update path var: {}", e));
@@ -197,7 +202,7 @@ fn is_executable<S: Into<String>>(s: S) -> bool {
 	return vec!["exe", "bat", "com"].iter().any(|x| x.ends_with(&s.as_str()));
 }
 
-fn is_valid_exe<S: Into<String>>(file: S) -> Option<String> {
+fn is_valid_exe_in_path<S: Into<String>>(file: S) -> Option<String> {
 
 	let p = match commands::path.lock() {
 		Ok(o) => {
@@ -215,16 +220,26 @@ fn is_valid_exe<S: Into<String>>(file: S) -> Option<String> {
 	for i in p.iter() {
 		let path = std::path::Path::new(i);
 		if path.join(file).is_file() {
-			if path.is_file() && is_executable(path.to_str().unwrap()) && (path.file_stem().unwrap() == file || path.file_name().unwrap() == file) {
-				return Some(path.canonicalize().unwrap().to_str().unwrap().to_string());
+			let path: &std::path::Path = &path.join(file);
+			if is_executable(path.to_str().unwrap()) && (path.file_stem().unwrap() == file || path.file_name().unwrap() == file) {
+				return Some(path.to_str().unwrap().to_string());
 			}
 		}
 	}
 
+	return None;
+}
+
+fn is_valid_exe_in_current_path<S: Into<String>>(file: S) -> Option<String> {
+
+	let file: String = file.into();
+	let file = std::ffi::OsStr::new(&file);
+
 	let path = std::path::Path::new(".");
 	if path.join(file).is_file() {
-		if path.is_file() && is_executable(path.to_str().unwrap()) && (path.file_stem().unwrap() == file || path.file_name().unwrap() == file) {
-			return Some(path.canonicalize().unwrap().to_str().unwrap().to_string());
+		let path: &std::path::Path = &path.join(file);
+		if is_executable(path.to_str().unwrap()) && (path.file_stem().unwrap() == file || path.file_name().unwrap() == file) {
+			return Some(path.to_str().unwrap().to_string());
 		}
 	}
 
@@ -285,41 +300,108 @@ fn main() {
 				if parsed.len() == 0 {
 					continue;
 				}
-				let mut found = false;
-				let command_clone = parsed[0].clone();
-				if let Some(s) = is_valid_exe(parsed.clone()[0].clone()) {
-					println!("{}", s);
-				}
-				for cmd in cmds.clone() {
-					if cmd.name == parsed.clone()[0] {
-						found = true;
-						let (sc, rc): (Sender<i16>, Receiver<i16>) = mpsc::channel();
-						debug("starting command thread");
-						let start_time = std::time::Instant::now();
-						let current_command = thread::spawn(move || -> Result<(), String> {
-							return (cmd.func)(parsed, inp[inp.len().min(cmd.name.len()+1)..].to_string(), Some(rc));
-						});
-						while !current_command.is_finished() {
-							if let Ok(msg) = rc2.try_recv() {
-								if msg == 1 {
-									if let Err(e) = sc.send(1) {
-										print_error(line!(), e);
+				let parsed_clone = parsed.clone();
+				if let Some(s) = is_valid_exe_in_current_path(parsed[0].clone()) {
+					let start_time = std::time::Instant::now();
+					let mut c = match Cmd::new(s).args(&parsed[1..]).spawn() {
+						Ok(o) => {
+							o
+						},
+						Err(e) => {
+							println!("Error: {}", e);
+							continue;
+						}
+					};
+					let mut showed_error = false;
+					loop {
+						match c.try_wait() {
+							Ok(Some(_)) => {
+								break;
+							},
+							Ok(None) => (),
+							Err(e) => {
+								if !showed_error {
+									print_error(line!(), format!("Error getting status of process: {}", e));
+								}
+								showed_error = true;
+							}
+						}
+						if let Ok(msg) = rc2.try_recv() {
+							if msg == 1 {
+								break;
+							}
+						}
+					}
+					c.kill().unwrap();
+					debug(format!("command took {} seconds to complete", start_time.elapsed().as_secs_f32()));
+				} else {
+					let mut found = false;
+					for cmd in cmds.clone() {
+						if cmd.name == parsed.clone()[0] {
+							found = true;
+							let (sc, rc): (Sender<i16>, Receiver<i16>) = mpsc::channel();
+							debug("starting command thread");
+							let start_time = std::time::Instant::now();
+							let current_command = thread::spawn(move || -> Result<(), String> {
+								return (cmd.func)(parsed, inp[inp.len().min(cmd.name.len()+1)..].to_string(), Some(rc));
+							});
+							while !current_command.is_finished() {
+								if let Ok(msg) = rc2.try_recv() {
+									if msg == 1 {
+										if let Err(e) = sc.send(1) {
+											print_error(line!(), e);
+										}
 									}
 								}
 							}
+							if let Err(e) = current_command.join().unwrap() {
+								print_error(line!(), e);
+							};
+							debug(format!("command took {} seconds to complete", start_time.elapsed().as_secs_f32()));
+							break;
+							// if let Err(e) = (cmd.func)(parsed.clone(), inp.clone()[inp.len().min(cmd.name.len()+1)..].to_string()) {
+							// 	print_error(line!(), e);
+							// };
 						}
-						if let Err(e) = current_command.join().unwrap() {
-							print_error(line!(), e);
-						};
-						debug(format!("command took {} seconds to complete", start_time.elapsed().as_secs_f32()));
-						break;
-						// if let Err(e) = (cmd.func)(parsed.clone(), inp.clone()[inp.len().min(cmd.name.len()+1)..].to_string()) {
-						// 	print_error(line!(), e);
-						// };
 					}
-				}
-				if !found {
-					print_syntax_error(format!("Command {} does not exist", command_clone));
+					if !found {
+						if let Some(s) = is_valid_exe_in_path(parsed_clone[0].clone()) {
+							let start_time = std::time::Instant::now();
+							let mut c = match Cmd::new(s).args(&parsed_clone[1..]).spawn() {
+								Ok(o) => {
+									o
+								},
+								Err(e) => {
+									println!("Error: {}", e);
+									continue;
+								}
+							};
+							let mut showed_error = false;
+							loop {
+								match c.try_wait() {
+									Ok(Some(_)) => {
+										break;
+									},
+									Ok(None) => (),
+									Err(e) => {
+										if !showed_error {
+											print_error(line!(), format!("Error getting status of process: {}", e));
+										}
+										showed_error = true;
+									}
+								}
+								if let Ok(msg) = rc2.try_recv() {
+									if msg == 1 {
+										break;
+									}
+								}
+							}
+							c.kill().unwrap();
+							debug(format!("command took {} seconds to complete", start_time.elapsed().as_secs_f32()));
+						} else {
+							print_syntax_error(format!("{} does not exist as a command or executable", parsed_clone[0]));
+						}
+					}
 				}
 			},
 			Err(_) => {

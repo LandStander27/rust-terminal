@@ -59,6 +59,12 @@ pub fn create_commands() -> Vec<Command<'static>> {
 		help: "Lists the current directory".to_string(),
 	});
 	crate::debug(format!("init {}", cmds.last().unwrap().name));
+	cmds.push(Command {
+		func: &(update_path as fn(Vec<String>, String, Option<Receiver<i16>>) -> Result<(), String>),
+		name: "reload-path".to_string(),
+		help: "Reloads PATH".to_string(),
+	});
+	crate::debug(format!("init {}", cmds.last().unwrap().name));
 	return cmds;
 }
 
@@ -274,4 +280,14 @@ fn list_directory(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Re
 
 
 	return Ok(());
+}
+
+fn update_path(_: Vec<String>, _: String, _: Option<Receiver<i16>>) -> Result<(), String> {
+
+	println!("Updating path");
+	crate::update_path();
+	println!("Path updated");
+
+	return Ok(());
+
 }
