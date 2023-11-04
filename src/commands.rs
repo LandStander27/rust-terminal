@@ -65,6 +65,12 @@ pub fn create_commands() -> Vec<Command<'static>> {
 		help: "Reloads PATH".to_string(),
 	});
 	crate::debug(format!("init {}", cmds.last().unwrap().name));
+	cmds.push(Command {
+		func: &(find_path as fn(Vec<String>, String, Option<Receiver<i16>>) -> Result<(), String>),
+		name: "which".to_string(),
+		help: "Finds an executable in PATH".to_string(),
+	});
+	crate::debug(format!("init {}", cmds.last().unwrap().name));
 	return cmds;
 }
 
@@ -288,6 +294,25 @@ fn update_path(_: Vec<String>, _: String, _: Option<Receiver<i16>>) -> Result<()
 	crate::update_path();
 	println!("Path updated");
 
+	return Ok(());
+
+}
+
+fn find_path(args: Vec<String>, _: String, _: Option<Receiver<i16>>) -> Result<(), String> {
+
+	if args.len() < 2 {
+		println!("Syntax: which {{pattern}}");
+		return Ok(());
+	}
+
+	if let Some(s) = crate::is_valid_exe_in_current_path(args[1].clone()) {
+		println!("{}", s);
+	} else if let Some(s) = crate::is_valid_exe_in_path(args[1].clone()) {
+		println!("{}", s);
+	} else {
+		println!("Could not find executable");
+	}
+	
 	return Ok(());
 
 }
