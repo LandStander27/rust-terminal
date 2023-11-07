@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 
 use indicatif::{ProgressBar, ProgressStyle};
 use walkdir::WalkDir;
+use std::io::{Read, Write};
 
 lazy_static! {
 	pub static ref data: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
@@ -84,6 +85,12 @@ pub fn create_commands() -> Vec<Command<'static>> {
 		func: &(remove as fn(Vec<String>, String, Option<Receiver<i16>>) -> Result<(), String>),
 		name: "rm".to_string(),
 		help: "Delete a file/directory (recursive)".to_string(),
+	});
+	crate::debug(format!("init {}", cmds.last().unwrap().name));
+	cmds.push(Command {
+		func: &(copy as fn(Vec<String>, String, Option<Receiver<i16>>) -> Result<(), String>),
+		name: "cp".to_string(),
+		help: "Copy a file/directory (recursive)".to_string(),
 	});
 	crate::debug(format!("init {}", cmds.last().unwrap().name));
 	return cmds;
@@ -442,6 +449,178 @@ fn remove(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Result<(),
 		}
 	}
 
+	return Ok(());
+}
+
+fn copy(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Result<(), String> {
+
+	if args.len() != 3 {
+		println!("Syntax: copy {{source directory/file}} {{destination directory/file}}");
+		return Ok(());
+	}
+
+	let p = std::path::Path::new(&args[1]);
+	if !p.exists() {
+		println!("Path does not exist");
+		return Ok(());
+	}
+	match p.is_dir() {
+		true => {
+
+			let dir = WalkDir::new(&args[1]);
+			let c: u64 = WalkDir::new(&args[1]).into_iter().count().try_into().unwrap();
+
+			let pb = ProgressBar::new(c);
+
+			pb.set_style(ProgressStyle::with_template("{msg} {spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}")
+				.unwrap()
+				.progress_chars("#>-"));
+
+			// if let Err(e) = std::fs::create_dir_all(&args[2]) {
+			// 	return Err(e.to_string());
+			// }
+			if rv.is_none() {
+				for entry in dir {
+					match entry {
+						Ok(o) => {
+							let tp = std::path::Path::new(o.path()).strip_prefix(p).unwrap();
+							let to = std::path::Path::new(&args[2]).join(tp);
+
+							if o.path().is_dir() {
+								if let Err(e) = std::fs::create_dir(to) {
+									return Err(e.to_string());
+								}
+							} else {
+								if let Err(e) = std::fs::copy(o.path(), to) {
+									return Err(e.to_string());
+								}
+							}
+							pb.inc(1);
+						},
+						Err(e) => {
+							return Err(e.to_string());
+						}
+					}
+				}
+			} else {
+				let channel = rv.as_ref().unwrap();
+				for entry in dir {
+					match entry {
+						Ok(o) => {
+							let tp = std::path::Path::new(o.path()).strip_prefix(p).unwrap();
+							let to = std::path::Path::new(&args[2]).join(tp);
+
+							if o.path().is_dir() {
+								if let Err(e) = std::fs::create_dir(to) {
+									return Err(e.to_string());
+								}
+							} else {
+								if let Err(e) = std::fs::copy(o.path(), to) {
+									return Err(e.to_string());
+								}
+							}
+							pb.inc(1);
+							if let Ok(o) = channel.try_recv() {
+								if o == 1 {
+									pb.finish_with_message("Copy stopped (cannot undo already copied files)");
+									return Ok(());
+								}
+							}
+						},
+						Err(e) => {
+							return Err(e.to_string());
+						}
+					}
+				}
+			}
+
+			pb.finish_with_message(format!("Copied {}", args[1]));
+		},
+		false => {
+
+			let mut f = match std::fs::File::open(&args[1]) {
+				Ok(o) => {
+					o
+				},
+				Err(e) => {
+					return Err(e.to_string());
+				}
+			};
+			let metadata = match f.metadata() {
+				Ok(o) => {
+					o
+				},
+				Err(e) => {
+					return Err(e.to_string());
+				}
+			};
+			let pb = ProgressBar::new(metadata.len());
+
+			pb.set_style(ProgressStyle::with_template("{msg} {spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}")
+				.unwrap()
+				.progress_chars("#>-"));
+
+			let mut new_file = match std::fs::File::create(&args[2]) {
+				Ok(o) => {
+					o
+				},
+				Err(e) => {
+					return Err(e.to_string());
+				}
+			};
+
+			let mut buf = vec![0; 2048];
+
+			if rv.is_none() {
+				while !buf.is_empty() {
+					match f.read(&mut buf) {
+						Ok(0) => {
+							break
+						},
+						Ok(o) => {
+							if let Err(e) = new_file.write(&buf[..o]) {
+								return Err(e.to_string());
+							}
+							pb.inc(o as u64);
+						},
+						Err(e) => {
+							return Err(e.to_string());
+						}
+					}
+				}
+			} else {
+				let channel = rv.as_ref().unwrap();
+				while !buf.is_empty() {
+					match f.read(&mut buf) {
+						Ok(0) => {
+							break
+						},
+						Ok(o) => {
+							if let Err(e) = new_file.write(&buf[..o]) {
+								return Err(e.to_string());
+							}
+							pb.inc(o as u64);
+							if let Ok(o) = channel.try_recv() {
+								if o == 1 {
+									pb.finish_with_message("Copy stopped");
+									drop(new_file);
+									if let Err(e) = std::fs::remove_file(&args[2]) {
+										return Err(format!("Could not delete already copied file data: {}", e));
+									}
+									return Ok(());
+								}
+							}
+						},
+						Err(e) => {
+							return Err(e.to_string());
+						}
+					}
+				}
+			}
+
+			pb.finish_with_message(format!("Copied {}", args[1]));
+		}
+	}
 
 	return Ok(());
 }
