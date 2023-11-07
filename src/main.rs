@@ -463,7 +463,6 @@ fn main() {
 		for var in d.keys() {
 			inp = inp.replace(&format!("${}$", var), &d[var]);
 		}
-		drop(d);
 		let d = commands::path.lock().unwrap();
 		if cfg!(windows) {
 			inp = inp.replace("$PATH$", &d.join(";"));

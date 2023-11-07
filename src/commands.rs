@@ -3,6 +3,9 @@
 use std::{path::Path, sync::{mpsc::Receiver, Mutex}, collections::HashMap, process::exit};
 use lazy_static::lazy_static;
 
+use indicatif::{ProgressBar, ProgressStyle};
+use walkdir::WalkDir;
+
 lazy_static! {
 	pub static ref data: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
 	pub static ref path: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -69,6 +72,18 @@ pub fn create_commands() -> Vec<Command<'static>> {
 		func: &(find_path as fn(Vec<String>, String, Option<Receiver<i16>>) -> Result<(), String>),
 		name: "which".to_string(),
 		help: "Finds an executable in PATH".to_string(),
+	});
+	crate::debug(format!("init {}", cmds.last().unwrap().name));
+	cmds.push(Command {
+		func: &(make_dir as fn(Vec<String>, String, Option<Receiver<i16>>) -> Result<(), String>),
+		name: "mkdir".to_string(),
+		help: "Make a directory".to_string(),
+	});
+	crate::debug(format!("init {}", cmds.last().unwrap().name));
+	cmds.push(Command {
+		func: &(remove as fn(Vec<String>, String, Option<Receiver<i16>>) -> Result<(), String>),
+		name: "rm".to_string(),
+		help: "Delete a file/directory (recursive)".to_string(),
 	});
 	crate::debug(format!("init {}", cmds.last().unwrap().name));
 	return cmds;
@@ -215,6 +230,10 @@ fn list_directory(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Re
 	}
 	let files = if args.len() == 2 {
 		if !(Path::new(&args[1]).is_dir()) {
+			if args[1] == "help" {
+				println!("Syntax: ls {{directory}}");
+				return Ok(());
+			}
 			println!("Directory does not exist");
 			return Ok(());
 		}
@@ -315,4 +334,114 @@ fn find_path(args: Vec<String>, _: String, _: Option<Receiver<i16>>) -> Result<(
 	
 	return Ok(());
 
+}
+
+fn make_dir(args: Vec<String>, _: String, _: Option<Receiver<i16>>) -> Result<(), String> {
+
+	if args.len() == 1 {
+		println!("Syntax: mkdir {{directory}}");
+		return Ok(());
+	}
+	
+	for i in &args[1..] {
+		let p = std::path::Path::new(i);
+		if p.exists() {
+			println!("Path already exists");
+			return Ok(());
+		}
+		if let Err(e) = std::fs::create_dir_all(p) {
+			return Err(e.to_string());
+		}
+	}
+
+	return Ok(());
+}
+
+fn remove(args: Vec<String>, _: String, rv: Option<Receiver<i16>>) -> Result<(), String> {
+
+	if args.len() == 1 {
+		println!("Syntax: rm {{directory/file}}");
+		return Ok(());
+	}
+
+	for i in &args[1..] {
+		let p = std::path::Path::new(i);
+		if !p.exists() {
+			println!("Path does not exist");
+			return Ok(());
+		}
+		match p.is_dir() {
+			true => {
+	
+				let dir = WalkDir::new(i).contents_first(true);
+				let c: u64 = WalkDir::new(i).into_iter().count().try_into().unwrap();
+	
+				let pb = ProgressBar::new(c);
+	
+				pb.set_style(ProgressStyle::with_template("{msg} {spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}")
+					.unwrap()
+					.progress_chars("#>-"));
+	
+				if rv.is_none() {
+					for entry in dir {
+						match entry {
+							Ok(o) => {
+								if o.path().is_dir() {
+									if let Err(e) = std::fs::remove_dir(o.path()) {
+										return Err(e.to_string());
+									}
+								} else {
+									if let Err(e) = std::fs::remove_file(o.path()) {
+										return Err(e.to_string());
+									}
+								}
+								pb.inc(1);
+							},
+							Err(e) => {
+								return Err(e.to_string());
+							}
+						}
+					}
+				} else {
+					let channel = rv.as_ref().unwrap();
+					for entry in dir {
+						match entry {
+							Ok(o) => {
+								if o.path().is_dir() {
+									if let Err(e) = std::fs::remove_dir(o.path()) {
+										return Err(e.to_string());
+									}
+								} else {
+									if let Err(e) = std::fs::remove_file(o.path()) {
+										return Err(e.to_string());
+									}
+								}
+								pb.inc(1);
+								if let Ok(o) = channel.try_recv() {
+									if o == 1 {
+										pb.finish_with_message("Deletion stopped (cannot recover already deleted files)");
+										return Ok(());
+									}
+								}
+							},
+							Err(e) => {
+								return Err(e.to_string());
+							}
+						}
+					}
+				}
+
+				pb.finish_with_message(format!("Deleted {}", i));
+			},
+			false => {
+				if let Err(e) = std::fs::remove_file(p) {
+					return Err(e.to_string());
+				}
+				println!("Deleted {}", i);
+			}
+		}
+	}
+
+
+	return Ok(());
 }
